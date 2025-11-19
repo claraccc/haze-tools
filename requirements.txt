@@ -1,0 +1,12 @@
+# --- Backend principal ---
+httpx>=0.27.0
+vdf>=3.4
+pycryptodome>=3.20.0
+steam>=1.4.4
+protobuf>=4.25.0
+tkinterdnd2>=0.4.0
+requests>=2.31.0
+
+# --- UI externa (Manifestor helper) ---
+PyQt6==6.6.1
+PyQt6-WebEngine==6.6.1
