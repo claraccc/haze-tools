@@ -9,6 +9,8 @@ With this tool, you can test games without the negative aspects of the original 
 
 This tool was absolutely never intended to assist with piracy; buy the games you like and that run well on your system. Support the developers; each game costs millions of dollars to create. You can't play them from beginning to end, so buy the games! Again, I emphasize that this tool is only for TESTING games without having to deal with the negative aspects of the refund system mentioned earlier.
 
+Being able to test games without limitations before buying them is every consumer's right. For example, <a href="https://i.imgur.com/mAGNdK2.jpeg">in this game</a>, I only got 16 FPS. And with my payment method, Steam doesn't allow refunds to my bank account, so my money would be stuck in my Steam wallet forever, which I find unacceptable. With my tool I was able to test and see that my system can't handle the game. My Money is on my bank account and not stuck on my steam wallet.  
+
 # What Haze Tools Will Do
 
 Haze Tools will just edit and create some text files on Steam directory.
