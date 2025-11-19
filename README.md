@@ -4,7 +4,7 @@
 
 Haze Tools is an open-source recreation of the Steam Tools .dll, written in Python, which, together with the "Green Luma 2025" dependency, allows you to test the game  before deciding to buy it. 
 Absolutely NEVER play from beginning to end, only test the performance and buy the game legally if you like it and it runs well on your machine. 
-This tool has clear advantages compared to the refund system because: The refund system can be disabled or limited if you request a refund for many games, and when you request a refund, you cannot get your money back to your bank; Steam holds the money in the store's internal balance. 
+This tool has clear advantages compared to the refund system because: The refund system can be disabled or limited if you request a refund for many games and when you request a refund, in many cases you cannot get your money back to your bank, in my country only 4 payments methods are accepted for refunds on the Bank, the other 10 payment methods will get your money stuck inside Steam Wallet without the option to move to your Bank account; Steam holds the money. 
 With this tool, you can test games without the negative aspects of the original Steam refund system. If Steam ever fix these two negative points, I will promptly delete this page.
 
 This tool was absolutely never intended to assist with piracy; buy the games you like and that run well on your system. Support the developers; each game costs millions of dollars to create. You can't play them from beginning to end, so buy the games! Again, I emphasize that this tool is only for TESTING games without having to deal with the negative aspects of the refund system mentioned earlier.
@@ -17,8 +17,8 @@ Haze Tools will just edit and create some text files on Steam directory.
 
 Haze Tools WILL NEVER do any of the following:
 
-Haze Tools will never make any game appear on your Steam app. For that, you need external tools like "Green Luma 2025", avaliable <a href="https://cs.rin.ru/forum/viewtopic.php?f=29&t=103709">here</a> .
-Haze Tools will never assist with bypassing or removing any kind of DRM, external launchers, anti-cheats or other protections that the game might have.
+Haze Tools will never make any game appear on your Steam app. For that, you need external tools like "Green Luma 2025", avaliable <a href="https://cs.rin.ru/forum/viewtopic.php?f=29&t=103709">here</a>  
+Haze Tools will never assist with bypassing or removing any kind of DRM, external launchers, anti-cheats or other protections that the game might have.  
 Haze Tools will never promote, encourage, or assist with piracy.
 
 # Legal
