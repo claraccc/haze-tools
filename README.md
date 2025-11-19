@@ -43,3 +43,15 @@ No code used within Haze Tools is taken from Valve or any of its partners / affi
 Haze Tools is released for educational purposes in the hopes to learn and understand python coding.
 
 Use Haze Tools at your own risk. I am not responsible for what happens while using Haze Tools. You take full reponsibility for any outcome that happens to you while using this application. Do not play the games from start to finish, only test them for the maximum of 2 hours, if you like the game, buy it, if you dont like the game, remove it from the tool.
+
+# Credits  
+GreenLuma dev - For the injection method.  
+SteamTools dev - For the manifest update method.  
+jericjan - For the idea and general structure reference.  
+oureveryday -  For lua caches.  
+SPIN0ZAI - For lua caches.  
+ROBZOMBIE - For lua caches.  
+sobakintech -  For lua caches.  
+OpenAI - For the coding assistance.  
+
+Note: No code from the people/projects above is used by this tool, they were used only as reference.  
