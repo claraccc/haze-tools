@@ -1120,6 +1120,7 @@ class AppGUI:
         self._ensure_profiles_initialized()
 
         saved_applist = self.config.get("applist_path", "")
+        saved_steam = self.config.get("steam_path", r"C:\Program Files (x86)\Steam")
 
         if DND_AVAILABLE:
             self.root = TkinterDnD.Tk()
@@ -1144,7 +1145,7 @@ class AppGUI:
         self.root.geometry("1149x841")
         self.root.configure(bg=self.bg)
 
-        self.steam_path_var = tk.StringVar(value=r"C:\Program Files (x86)\Steam")
+        self.steam_path_var = tk.StringVar(value=saved_steam)
         self.applist_path_var = tk.StringVar(value=saved_applist)
 
         self.current_profile_var = tk.StringVar(value=self.profiles_data["last_profile"])
@@ -1791,8 +1792,22 @@ class AppGUI:
 
     def browse_steam(self):
         f = filedialog.askdirectory()
-        if f:
-            self.steam_path_var.set(f)
+        if not f:
+            return
+
+        self.steam_path_var.set(f)
+        self.config["steam_path"] = f
+        if not save_config(self.config):
+            if self.lang == "pt":
+                messagebox.showerror(
+                    "Erro ao salvar config.json",
+                    "Não foi possível escrever o arquivo config.json."
+                )
+            else:
+                messagebox.showerror(
+                    "Error saving config.json",
+                    "Could not write config.json file."
+                )
 
     def open_depotcache(self):
         steam = Path(self.steam_path_var.get())
