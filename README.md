@@ -11,6 +11,11 @@ This tool was absolutely never intended to assist with piracy; buy the games you
 
 Being able to test games without limitations before buying them is every consumer's right. For example, <a href="https://i.imgur.com/mAGNdK2.jpeg">in this game</a>, I only got 16 FPS. And with my payment method, Steam doesn't allow refunds to my bank account, so my money would be stuck in my Steam wallet forever, which I find unacceptable. With my tool I was able to test and see that my system can't handle the game. My Money is on my bank account and not stuck on my steam wallet.  
 
+# Some notes:  
+It's compatible with [SteamPortable](https://github.com/Ghostwillower/SteamPortable), so you can have one Steam just for testing the games, which make stuff more organized.  
+You need to keep GreenLuma updated to keep up with the Steam updates, otherwise the downloads won't work. For coincidence some days ago a Steam update broke Luma and only today (22 nov) it was fixed. So if it stop working, just wait for a Luma update.  
+I believe the tool is self explanatory with a UI easy to understand. But you can request a "how to use" tutorial in the "issues" section.  
+
 # What Haze Tools Will Do
 
 Haze Tools will just edit and create some text files on Steam directory.
