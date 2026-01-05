@@ -10,6 +10,7 @@ import struct
 import zlib
 import zipfile
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -628,10 +629,10 @@ def decrypt_manifest(encrypted: bytes, out_path: Path, key_hex: str) -> None:
         f.write(struct.pack("<I", PROTOBUF_ENDOFMANIFEST_MAGIC))
 
 
-async def get_request(url: str, timeout: int = 10) -> Optional[str]:
+async def get_request(url: str, timeout: int = 10, headers: dict | None = None) -> Optional[str]:
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.get(url)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
         if r.status_code == 200:
             return r.text
     except Exception:
@@ -640,14 +641,28 @@ async def get_request(url: str, timeout: int = 10) -> Optional[str]:
 
 
 async def get_gmrc(manifest_id: str) -> str:
-    url = f"http://gmrc.openst.top/manifest/{manifest_id}"
-    data = await get_request(url, timeout=20)
-    if not data:
-        raise RuntimeError(f"GMRC request failed for manifest {manifest_id}")
-    code = data.strip()
-    if not code:
-        raise RuntimeError(f"GMRC returned empty code for manifest {manifest_id}")
-    return code
+    # tenta https primeiro (muitos hosts redirecionam), depois http
+    bases = [
+        "https://gmrc.wudrm.com",
+        "http://gmrc.wudrm.com",
+    ]
+
+    last_err = None
+    for base in bases:
+        url = f"{base}/manifest/{manifest_id}"
+        headers = {
+            "Referer": base,  # isso costuma ser o “pulo do gato”
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+
+        data = await get_request(url, timeout=20, headers=headers)
+        if data:
+            code = data.strip()
+            if code:
+                return code
+        last_err = f"GMRC empty/failed: {url}"
+
+    raise RuntimeError(last_err or f"GMRC request failed for manifest {manifest_id}")
 
 
 def get_manifest_ids(client: SteamClient, lua: LuaParsedInfo, log) -> Dict[str, str]:
@@ -3639,161 +3654,137 @@ class AppGUI:
         else:
             self.log(f"Installing from cache ZIP: {zip_path}")
 
-        tmp_dir = SCRIPT_DIR / "__tmp_cache_install"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        # 1) Extrair o ZIP
-        try:
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(tmp_dir)
-        except Exception as e:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            if self.lang == "pt":
-                messagebox.showerror(
-                    "Erro",
-                    f"Falha ao extrair o ZIP:\n{e}",
-                )
-            else:
-                messagebox.showerror(
-                    "Error",
-                    f"Failed to extract ZIP:\n{e}",
-                )
-            return
-
-        try:
-            # 2) Procurar .lua e .manifest dentro do tmp
-            lua_candidates = []
-            manifest_files = []
-
-            for root, dirs, files in os.walk(tmp_dir):
-                for fname in files:
-                    full = Path(root) / fname
-                    low = fname.lower()
-                    if low.endswith(".lua"):
-                        lua_candidates.append(full)
-                    elif low.endswith(".manifest"):
-                        manifest_files.append(full)
-
-            if not lua_candidates:
-                if self.lang == "pt":
-                    messagebox.showerror(
-                        "Erro",
-                        "Nenhum arquivo .lua encontrado dentro do ZIP.",
-                    )
-                else:
-                    messagebox.showerror(
-                        "Error",
-                        "No .lua file found inside the ZIP.",
-                    )
-                return
-
-            lua_path = lua_candidates[0]
-            if self.lang == "pt":
-                self.log(f"Lua do cache: {lua_path}")
-            else:
-                self.log(f"Cache Lua: {lua_path}")
-
-            # 3) Parse do .lua
+        # Executar operações bloqueantes em thread separada
+        def _background_task():
+            tmp_dir = SCRIPT_DIR / "__tmp_cache_install"
             try:
-                info = parse_lua(lua_path)
-            except Exception as e:
-                if self.lang == "pt":
-                    messagebox.showerror("Erro ao ler .lua", str(e))
-                else:
-                    messagebox.showerror("Error reading .lua", str(e))
-                return
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                tmp_dir.mkdir(parents=True, exist_ok=True)
 
-            # 4) Atualiza config.vdf e .acf (modo cache)
-            try:
-                if self.lang == "pt":
-                    self.log("Atualizando config.vdf (cache)...")
-                else:
-                    self.log("Updating config.vdf (cache)...")
-                add_decryption_keys_to_config(steam, info, self.log)
-            except Exception as e:
-                if self.lang == "pt":
-                    messagebox.showerror("Erro em config.vdf", str(e))
-                else:
-                    messagebox.showerror("Error in config.vdf", str(e))
-                return
-
-            try:
-                if self.lang == "pt":
-                    self.log("Gerando .acf (cache)...")
-                else:
-                    self.log("Generating .acf (cache)...")
-                write_acf_for_lua(steam, info, self.log)
-            except Exception as e:
-                if self.lang == "pt":
-                    messagebox.showerror("Erro ao gerar .acf", str(e))
-                else:
-                    messagebox.showerror("Error generating .acf", str(e))
-                return
-
-            # 5) Copiar manifests para depotcache
-            depotcache_dir = steam / "depotcache"
-            depotcache_dir.mkdir(exist_ok=True)
-
-            manifest_out_paths: List[Path] = []
-            for mf in manifest_files:
-                dest = depotcache_dir / mf.name
+                # 1) Extrair o ZIP
                 try:
-                    shutil.copy2(mf, dest)
-                    manifest_out_paths.append(dest)
-                    if self.lang == "pt":
-                        self.log(f"Manifest copiado para depotcache: {dest}")
-                    else:
-                        self.log(f"Manifest copied to depotcache: {dest}")
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        zf.extractall(tmp_dir)
                 except Exception as e:
-                    if self.lang == "pt":
-                        self.log(f"[AVISO] Falha ao copiar manifest {mf}: {e}")
-                    else:
-                        self.log(f"[WARNING] Failed to copy manifest {mf}: {e}")
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    self.root.after(0, lambda: messagebox.showerror(
+                        "Erro" if self.lang == "pt" else "Error",
+                        f"Falha ao extrair o ZIP:\n{e}" if self.lang == "pt" else f"Failed to extract ZIP:\n{e}"
+                    ))
+                    return
 
-            if not manifest_out_paths:
-                if self.lang == "pt":
-                    self.log(
-                        "Nenhum manifest encontrado no ZIP. Profile não será atualizada."
-                    )
-                else:
-                    self.log(
-                        "No manifest found in the ZIP. Profile will not be updated."
-                    )
-                return
+                # 2) Procurar .lua e .manifest dentro do tmp
+                lua_candidates = []
+                manifest_files = []
 
-            # 6) Extrair IDs de depot e combinar com AppID
-            depot_ids = extract_ids_from_manifests(manifest_out_paths, self.log)
-            combined: List[str] = []
-            seen = set()
-            for x in [info.app_id] + depot_ids:
-                if x not in seen:
-                    seen.add(x)
-                    combined.append(x)
+                for root, dirs, files in os.walk(tmp_dir):
+                    for fname in files:
+                        full = Path(root) / fname
+                        low = fname.lower()
+                        if low.endswith(".lua"):
+                            lua_candidates.append(full)
+                        elif low.endswith(".manifest"):
+                            manifest_files.append(full)
 
-            game_name = try_get_game_name(info.app_id)
-            if self.lang == "pt":
-                self.log(f"Nome do jogo detectado: {game_name}")
-                self.log(f"IDs combinados (App + Depots): {', '.join(combined)}")
-            else:
-                self.log(f"Detected game name: {game_name}")
-                self.log(f"Combined IDs (App + Depots): {', '.join(combined)}")
+                if not lua_candidates:
+                    self.root.after(0, lambda: messagebox.showerror(
+                        "Erro" if self.lang == "pt" else "Error",
+                        "Nenhum arquivo .lua encontrado dentro do ZIP." if self.lang == "pt" else "No .lua file found inside the ZIP."
+                    ))
+                    return
 
-            # 7) Preparar cache de banner (se possível)
-            try:
-                ensure_banner_cache(info.app_id, steam, self.log)
-            except Exception as e:
-                if self.lang == "pt":
-                    self.log(f"[AVISO] Falha ao preparar cache de banner: {e}")
-                else:
-                    self.log(f"[WARNING] Failed to prepare banner cache: {e}")
+                lua_path = lua_candidates[0]
+                self.root.after(0, lambda: self.log(f"Lua do cache: {lua_path}" if self.lang == "pt" else f"Cache Lua: {lua_path}"))
 
-            # 8) Instalar jogo na profile respeitando limite de 130 e AppList
-            self.install_game_with_ids(info.app_id, game_name, combined)
+                # 3) Parse do .lua
+                try:
+                    info = parse_lua(lua_path)
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror(
+                        "Erro ao ler .lua" if self.lang == "pt" else "Error reading .lua",
+                        str(e)
+                    ))
+                    return
 
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+                # 4) Atualiza config.vdf e .acf (modo cache)
+                try:
+                    self.root.after(0, lambda: self.log("Atualizando config.vdf (cache)..." if self.lang == "pt" else "Updating config.vdf (cache)..."))
+                    add_decryption_keys_to_config(steam, info, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror(
+                        "Erro em config.vdf" if self.lang == "pt" else "Error in config.vdf",
+                        str(e)
+                    ))
+                    return
+
+                try:
+                    self.root.after(0, lambda: self.log("Gerando .acf (cache)..." if self.lang == "pt" else "Generating .acf (cache)..."))
+                    write_acf_for_lua(steam, info, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror(
+                        "Erro ao gerar .acf" if self.lang == "pt" else "Error generating .acf",
+                        str(e)
+                    ))
+                    return
+
+                # 5) Copiar manifests para depotcache
+                depotcache_dir = steam / "depotcache"
+                depotcache_dir.mkdir(exist_ok=True)
+
+                manifest_out_paths: List[str] = []
+                for mf in manifest_files:
+                    dest = depotcache_dir / mf.name
+                    try:
+                        shutil.copy2(mf, dest)
+                        manifest_out_paths.append(dest)
+                        self.root.after(0, lambda d=dest: self.log(
+                            f"Manifest copiado para depotcache: {d}" if self.lang == "pt" else f"Manifest copied to depotcache: {d}"
+                        ))
+                    except Exception as e:
+                        self.root.after(0, lambda m=mf, err=e: self.log(
+                            f"[AVISO] Falha ao copiar manifest {m}: {err}" if self.lang == "pt" else f"[WARNING] Failed to copy manifest {m}: {err}"
+                        ))
+
+                if not manifest_out_paths:
+                    self.root.after(0, lambda: self.log(
+                        "Nenhum manifest encontrado no ZIP. Profile não será atualizada." if self.lang == "pt" else "No manifest found in the ZIP. Profile will not be updated."
+                    ))
+                    return
+
+                # 6) Extrair IDs de depot e combinar com AppID
+                depot_ids = extract_ids_from_manifests(manifest_out_paths, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                combined: List[str] = []
+                seen = set()
+                for x in [info.app_id] + depot_ids:
+                    if x not in seen:
+                        seen.add(x)
+                        combined.append(x)
+
+                game_name = try_get_game_name(info.app_id)
+                self.root.after(0, lambda: self.log(
+                    f"Nome do jogo detectado: {game_name}" if self.lang == "pt" else f"Detected game name: {game_name}"
+                ))
+                self.root.after(0, lambda: self.log(f"IDs combinados (App + Depots): {', '.join(combined)}"))
+
+                # 7) Preparar cache de banner (se possível)
+                try:
+                    ensure_banner_cache(info.app_id, steam, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                except Exception as e:
+                    self.root.after(0, lambda: self.log(
+                        f"[AVISO] Falha ao preparar cache de banner: {e}" if self.lang == "pt" else f"[WARNING] Failed to prepare banner cache: {e}"
+                    ))
+
+                # 8) Instalar jogo na profile respeitando limite de 130 e AppList (executar na thread principal)
+                self.root.after(0, lambda: self.install_game_with_ids(info.app_id, game_name, combined))
+
+            finally:
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+        
+        # Iniciar thread de background
+        thread = threading.Thread(target=_background_task, daemon=True)
+        thread.start()
 
     # --------- Lógica principal (.lua) ---------
     def process_lua(self, lua_path: Path):
@@ -3815,94 +3806,65 @@ class AppGUI:
         else:
             self.log(f"Reading lua: {lua_path}")
 
-        # 1) Ler e interpretar o .lua
-        try:
-            info = parse_lua(lua_path)
-        except Exception as e:
-            if self.lang == "pt":
-                messagebox.showerror("Erro ao ler .lua", str(e))
-            else:
-                messagebox.showerror("Error reading .lua", str(e))
-            return
-
-        # 2) Atualizar config.vdf com as DecryptionKeys
-        try:
-            if self.lang == "pt":
-                self.log("Atualizando config.vdf...")
-            else:
-                self.log("Updating config.vdf...")
-            add_decryption_keys_to_config(steam, info, self.log)
-        except Exception as e:
-            if self.lang == "pt":
-                messagebox.showerror("Erro em config.vdf", str(e))
-            else:
-                messagebox.showerror("Error in config.vdf", str(e))
-            return
-
-        # 3) Gerar .acf
-        try:
-            if self.lang == "pt":
-                self.log("Gerando .acf...")
-            else:
-                self.log("Generating .acf...")
-            write_acf_for_lua(steam, info, self.log)
-        except Exception as e:
-            if self.lang == "pt":
-                messagebox.showerror("Erro ao gerar .acf", str(e))
-            else:
-                messagebox.showerror("Error generating .acf", str(e))
-            return
-
-        # 4) Baixar + descriptografar manifests para depotcache
-        try:
-            if self.lang == "pt":
-                self.log("Baixando e descriptografando manifests para depotcache...")
-            else:
-                self.log("Downloading and decrypting manifests to depotcache...")
-            manifest_paths = download_manifests_to_depotcache(steam, info, self.log)
-        except Exception as e:
-            if self.lang == "pt":
-                messagebox.showerror("Erro ao baixar manifests", str(e))
-            else:
-                messagebox.showerror("Error downloading manifests", str(e))
-            return
-
-        if not manifest_paths:
-            if self.lang == "pt":
-                self.log("Nenhum manifest baixado. Profile não será atualizada.")
-            else:
-                self.log("No manifest was downloaded. Profile will not be updated.")
-            return
-
-        # 5) Extrair IDs de depot + combinar com AppID
-        depot_ids = extract_ids_from_manifests(manifest_paths, self.log)
-        combined: List[str] = []
-        seen = set()
-        for x in [info.app_id] + depot_ids:
-            if x not in seen:
-                seen.add(x)
-                combined.append(x)
-
-        game_name = try_get_game_name(info.app_id)
-
-        if self.lang == "pt":
-            self.log(f"Nome do jogo detectado: {game_name}")
-            self.log(f"IDs combinados (App + Depots): {', '.join(combined)}")
-        else:
-            self.log(f"Detected game name: {game_name}")
-            self.log(f"Combined IDs (App + Depots): {', '.join(combined)}")
-
-        # 6) Banner / descrição em cache (não é crítico se falhar)
-        try:
-            ensure_banner_cache(info.app_id, steam, self.log)
-        except Exception as e:
-            if self.lang == "pt":
-                self.log(f"[AVISO] Falha ao preparar cache de banner: {e}")
-            else:
-                self.log(f"[WARNING] Failed to prepare banner cache: {e}")
-
-        # 7) Delega para o helper que cuida de limite 130 + profile + AppList
-        self.install_game_with_ids(info.app_id, game_name, combined)
+        # Executar operações bloqueantes em thread separada
+        def _background_task():
+            try:
+                # 1) Ler e interpretar o .lua
+                info = parse_lua(lua_path)
+                
+                # 2) Atualizar config.vdf com as DecryptionKeys
+                self.root.after(0, lambda: self.log("Atualizando config.vdf..." if self.lang == "pt" else "Updating config.vdf..."))
+                add_decryption_keys_to_config(steam, info, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                
+                # 3) Gerar .acf
+                self.root.after(0, lambda: self.log("Gerando .acf..." if self.lang == "pt" else "Generating .acf..."))
+                write_acf_for_lua(steam, info, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                
+                # 4) Baixar + descriptografar manifests para depotcache
+                self.root.after(0, lambda: self.log("Baixando e descriptografando manifests para depotcache..." if self.lang == "pt" else "Downloading and decrypting manifests to depotcache..."))
+                manifest_paths = download_manifests_to_depotcache(steam, info, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                
+                if not manifest_paths:
+                    self.root.after(0, lambda: self.log("Nenhum manifest baixado. Profile não será atualizada." if self.lang == "pt" else "No manifest was downloaded. Profile will not be updated."))
+                    return
+                
+                # 5) Extrair IDs de depot + combinar com AppID
+                depot_ids = extract_ids_from_manifests(manifest_paths, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                combined: List[str] = []
+                seen = set()
+                for x in [info.app_id] + depot_ids:
+                    if x not in seen:
+                        seen.add(x)
+                        combined.append(x)
+                
+                game_name = try_get_game_name(info.app_id)
+                
+                self.root.after(0, lambda: self.log(f"Nome do jogo detectado: {game_name}" if self.lang == "pt" else f"Detected game name: {game_name}"))
+                self.root.after(0, lambda: self.log(f"IDs combinados (App + Depots): {', '.join(combined)}"))
+                
+                # 6) Banner / descrição em cache (não é crítico se falhar)
+                try:
+                    ensure_banner_cache(info.app_id, steam, lambda msg: self.root.after(0, lambda: self.log(msg)))
+                except Exception as e:
+                    self.root.after(0, lambda: self.log(f"[AVISO] Falha ao preparar cache de banner: {e}" if self.lang == "pt" else f"[WARNING] Failed to prepare banner cache: {e}"))
+                
+                # 7) Delega para o helper que cuida de limite 130 + profile + AppList (executar na thread principal)
+                self.root.after(0, lambda: self.install_game_with_ids(info.app_id, game_name, combined))
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "config.vdf" in error_msg.lower():
+                    self.root.after(0, lambda: messagebox.showerror("Erro em config.vdf" if self.lang == "pt" else "Error in config.vdf", error_msg))
+                elif ".acf" in error_msg.lower():
+                    self.root.after(0, lambda: messagebox.showerror("Erro ao gerar .acf" if self.lang == "pt" else "Error generating .acf", error_msg))
+                elif "manifest" in error_msg.lower():
+                    self.root.after(0, lambda: messagebox.showerror("Erro ao baixar manifests" if self.lang == "pt" else "Error downloading manifests", error_msg))
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("Erro ao ler .lua" if self.lang == "pt" else "Error reading .lua", error_msg))
+        
+        # Iniciar thread de background
+        thread = threading.Thread(target=_background_task, daemon=True)
+        thread.start()
 
     # --------- Get Lua integrado ---------
 
